@@ -47,6 +47,7 @@ def video2frames(video_path: Path, image_dir: Path, keep_video_name: bool=False,
         start_number=0,
         qscale=1,  # lower values mean higher quality (1 is the best, 31 is the worst).
     )
+    .global_args('-threads', '0')  # setting threads=0 tells FFmpeg to use all available CPU cores automatically.
     .overwrite_output()
     .run(quiet=True)
     )
@@ -57,7 +58,7 @@ def robust_video_matting(image_dir: Path, N_warmup: Optional[int]=10):
     model = torch.hub.load("PeterL1n/RobustVideoMatting", "resnet50").cuda()
 
     dataset = ImageFolderDataset(image_folder=image_dir)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=16)
 
     # bgr = torch.tensor([.47, 1, .6]).view(3, 1, 1).cuda()  # Green background.
     rec = [None] * 4  # Initial recurrent states.
@@ -94,6 +95,8 @@ def background_matting_v2(
         model_refine_sample_pixels: int=80_000,
         model_refine_threshold: float=0.01,
         model_refine_kernel_size: int=3,
+        matting_batch_size: int=8,
+        matting_num_workers: int=8,
     ):
     model = MattingRefine(
         model_backbone,
@@ -115,7 +118,7 @@ def background_matting_v2(
         background_fname2camId=lambda x: x.split('.')[0].split('_')[1],  # image_00001.jpg -> 00001
         image_fname2camId=lambda x: x.split('.')[0].split('_')[1],       # cam_00001.jpg -> 00001
     )
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1)
+    dataloader = DataLoader(dataset, batch_size=matting_batch_size, shuffle=False, num_workers=matting_num_workers)
 
     for item in tqdm(dataloader):
         src = item['rgb']
@@ -132,6 +135,7 @@ def background_matting_v2(
         if not Path(alpha_path).parent.exists():
             Path(alpha_path).parent.mkdir(parents=True)
         alpha.save(alpha_path)
+        del src, bgr, pha, fgr # free up GPU memory
 
 def downsample_frames(image_dir: Path, n_downsample: int):
     print(f'Downsample frames in {image_dir} by {n_downsample}')
@@ -151,6 +155,8 @@ def main(
         downsample_scales: List[int]=[],
         matting_method: Optional[Literal['robust_video_matting', 'background_matting_v2']]=None,
         background_folder: Path=Path('../../BACKGROUND'),
+        matting_batch_size: int=8,
+        matting_num_workers: int=8,
     ):
     if not input.exists():
         matched_paths = list(input.parent.glob(f"{input.name}"))
@@ -187,7 +193,7 @@ def main(
     if matting_method == 'robust_video_matting':
         robust_video_matting(image_dir)
     elif matting_method == 'background_matting_v2':
-        background_matting_v2(image_dir, background_folder=background_folder)
+        background_matting_v2(image_dir, background_folder=background_folder, matting_batch_size=matting_batch_size, matting_num_workers=matting_num_workers)
     elif matting_method is not None:
         raise ValueError(f'Unknown matting method: {matting_method}')
 

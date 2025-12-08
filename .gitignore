@@ -154,3 +154,5 @@ tmp
 output/
 export/
 /data/
+
+**/*.pkl
