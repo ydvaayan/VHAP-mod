@@ -1222,7 +1222,7 @@ class GlobalTracker(FlameTracker):
     def __init__(self, cfg: BaseTrackingConfig):
         super().__init__(cfg)
 
-        self.calibrated = cfg.data.calibrated
+        self.calibrated = cfg.data.calibrated # True
 
         self.detect_landmarks(cfg)
 
@@ -1257,22 +1257,22 @@ class GlobalTracker(FlameTracker):
         # parameters
         self.init_params()
 
-        if self.cfg.model.flame_params_path is not None:
+        if self.cfg.model.flame_params_path is not None: #None by default
             self.load_from_tracked_flame_params(self.cfg.model.flame_params_path)
 
     def detect_landmarks(self, cfg):
         cfg_data = deepcopy(cfg.data)
-        cfg_data.use_landmark = False
+        cfg_data.use_landmark = False #initially true being changed to false
         dataset = import_module(cfg.data._target)(cfg=cfg_data, batchify_all_views=False)
 
         if cfg.data.landmark_source == 'face-alignment':
             if not cfg.exp.reuse_landmarks or not dataset.get_property_path("landmark2d/face-alignment", -1).exists():
                 from vhap.util.landmark_detector_fa import annotate_landmarks
                 annotate_landmarks(dataset, n_jobs=cfg.data.landmark_detector_njobs)
-        elif cfg.data.landmark_source == 'star':
-            if not cfg.exp.reuse_landmarks or not dataset.get_property_path("landmark2d/STAR", -1).exists():
+        elif cfg.data.landmark_source == 'star':#yes
+            if not cfg.exp.reuse_landmarks or not dataset.get_property_path("landmark2d/STAR", -1).exists(): #cfg.exp.reuse_landmarks = True by default
                 from vhap.util.landmark_detector_star import annotate_landmarks
-                annotate_landmarks(dataset, n_jobs=cfg.data.landmark_detector_njobs)
+                annotate_landmarks(dataset, n_jobs=cfg.data.landmark_detector_njobs)#8 by default
         else:
             raise ValueError(f"Unknown landmark source: {cfg.data.landmark_source}")
     
@@ -1280,8 +1280,8 @@ class GlobalTracker(FlameTracker):
         train_tensors = []
 
         # flame model params
-        self.shape = torch.zeros(self.cfg.model.n_shape).to(self.device)
-        self.expr = torch.zeros(self.n_timesteps, self.cfg.model.n_expr).to(self.device)
+        self.shape = torch.zeros(self.cfg.model.n_shape).to(self.device) #n_shape =300
+        self.expr = torch.zeros(self.n_timesteps, self.cfg.model.n_expr).to(self.device)#n_expr=100
 
         # joint axis angles
         self.neck_pose = torch.zeros(self.n_timesteps, 3).to(self.device)
@@ -1293,12 +1293,12 @@ class GlobalTracker(FlameTracker):
         self.rotation = torch.zeros(self.n_timesteps, 3).to(self.device)
 
         # texture and lighting params
-        self.tex_pca = torch.zeros(self.cfg.model.n_tex).to(self.device)
-        if self.cfg.model.tex_extra:
-            res = self.cfg.model.tex_resolution
+        self.tex_pca = torch.zeros(self.cfg.model.n_tex).to(self.device)#n_tex=100
+        if self.cfg.model.tex_extra:#true by default
+            res = self.cfg.model.tex_resolution#2048
             self.tex_extra = torch.zeros(3, res, res).to(self.device)
         
-        if self.cfg.render.lighting_type == 'SH':
+        if self.cfg.render.lighting_type == 'SH': #true
             self.lights_uniform = torch.zeros(9, 3).to(self.device)
             self.lights_uniform[0] = torch.tensor([np.sqrt(4 * np.pi)]).expand(3).float().to(self.device)
             self.lights = self.lights_uniform.clone()
@@ -1309,28 +1309,28 @@ class GlobalTracker(FlameTracker):
             [self.shape, self.translation, self.rotation, self.neck_pose, self.jaw_pose, self.eyes_pose, self.expr,]
         )
 
-        if not self.cfg.model.tex_painted:
+        if not self.cfg.model.tex_painted: # tex_painted = True
             train_tensors += [self.tex_pca]
-        if self.cfg.model.tex_extra:
+        if self.cfg.model.tex_extra: #True
             train_tensors += [self.tex_extra]
 
         if self.lights is not None:
             train_tensors += [self.lights]
 
-        if self.cfg.model.use_static_offset:
+        if self.cfg.model.use_static_offset: #True
             self.static_offset = torch.zeros(1, self.flame.v_template.shape[0], 3).to(self.device)
             train_tensors += [self.static_offset]
         else:
             self.static_offset = None
         
-        if self.cfg.model.use_dynamic_offset:
+        if self.cfg.model.use_dynamic_offset: #False
             self.dynamic_offset = torch.zeros(self.n_timesteps, self.flame.v_template.shape[0], 3).to(self.device)
             train_tensors += self.dynamic_offset
         else:
             self.dynamic_offset = None
 
         # camera definition
-        if not self.calibrated:
+        if not self.calibrated:#False since calibrated = True
             # K contains focal length and principle point
             self.focal_length = torch.tensor([1.5]).to(self.device)
             self.RT = torch.eye(3, 4).to(self.device)
@@ -1351,12 +1351,12 @@ class GlobalTracker(FlameTracker):
         self.logger.info(f"Start sequential tracking FLAME in {self.n_timesteps} frames")
         dataloader = DataLoader(
             self.dataset, 
-            batch_size=self.cfg.batch_size if not self.dataset.batchify_all_views else None, 
+            batch_size=self.cfg.batch_size if not self.dataset.batchify_all_views else None, #batchify_all_views = True
             shuffle=False, 
             num_workers=4
         )
         for sample in dataloader:
-            if sample["timestep_index"][0].item() == 0:
+            if sample["timestep_index"][0].item() == 0:#initialize params from 1st frame
                 self.optimize_stage('lmk_init_rigid', sample)
                 self.optimize_stage('lmk_init_all', sample)
                 if self.cfg.exp.photometric:
@@ -1365,11 +1365,11 @@ class GlobalTracker(FlameTracker):
                     if self.cfg.model.use_static_offset:
                         self.optimize_stage('rgb_init_offset', sample)
 
-            if self.cfg.exp.photometric:
+            if self.cfg.exp.photometric:#train template and model 
                 self.optimize_stage('rgb_sequential_tracking', sample)
             else:
                 self.optimize_stage('lmk_sequential_tracking', sample)
-            self.initialize_next_timtestep(sample["timestep_index"])
+            self.initialize_next_timtestep(sample["timestep_index"])#initialize parameters for next timestep using current
         
         self.evaluate(make_visualization=True, epoch=0)
 

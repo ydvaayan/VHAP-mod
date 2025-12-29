@@ -225,18 +225,20 @@ class TrackedFLAMEDatasetWriter:
         })
 
     def write(self):
-        if self.mode == 'mesh':
-            self.write_canonical_mesh()
-            indices = self.db['timestep_indices']
-            verts = infer_flame_params(self.flame_model, self.flame_params, indices)
+        # if self.mode == 'mesh':
+        self.write_canonical_mesh()
+        indices = self.db['timestep_indices']
+        verts = infer_flame_params(self.flame_model, self.flame_params, indices)
 
-            print(f"Writing FLAME expressions and meshes to: {self.tgt_folder}")
-        elif self.mode == 'param':
-            self.write_canonical_flame_param()
-            print(f"Writing FLAME parameters to: {self.tgt_folder}")
+        print(f"Writing FLAME expressions and meshes to: {self.tgt_folder}")
+        # elif self.mode == 'param':
+        self.write_canonical_flame_param()
+        print(f"Writing FLAME parameters to: {self.tgt_folder}")
         
-        saved = [False] * len(self.db['timestep_indices'])  # avoid writing the same mesh multiple times
-        num_processes = multiprocessing.cpu_count()
+        saved_param = [False] * len(self.db['timestep_indices'])  # avoid writing the same mesh multiple times
+        saved_mesh = [False] * len(self.db['timestep_indices'])
+        cpu_count= multiprocessing.cpu_count()
+        num_processes = cpu_count if cpu_count%2==0 else cpu_count-1
         worker_args = []
         for i, frame in tqdm(enumerate(self.db['frames']), total=len(self.db['frames'])):
             if self.focal_length is not None:
@@ -248,29 +250,29 @@ class TrackedFLAMEDatasetWriter:
             ti = frame['timestep_index']  # use ti when saving files
 
             # write FLAME mesh or parameters
-            if self.mode == 'mesh':
-                frame['exp_path'] = f"flame/exp/{ti:05d}.txt"
-                frame['mesh_path'] = f"meshes/{ti:05d}.obj"
-                if not saved[ti]:
-                    worker_args.append([self.tgt_folder, frame['exp_path'], self.flame_params['expr'][ti_orig], frame['mesh_path'], verts[ti_orig], self.flame_model.faces])
-                    saved[ti] = True
-                    func = self.write_expr_and_mesh
-            elif self.mode == 'param':
-                frame['flame_param_path'] = f"flame_param/{ti:05d}.npz"
-                if not saved[ti]:
-                    worker_args.append([self.tgt_folder, frame['flame_param_path'], self.flame_params, ti_orig])
-                    saved[ti] = True
-                    func = self.write_flame_param
+            # if self.mode == 'mesh':
+            frame['exp_path'] = f"flame/exp/{ti:05d}.txt"
+            frame['mesh_path'] = f"meshes/{ti:05d}.obj"
+            if not saved_mesh[ti]:
+                worker_args.append([self.tgt_folder, frame['exp_path'], self.flame_params['expr'][ti_orig], frame['mesh_path'], verts[ti_orig], self.flame_model.faces])
+                saved_mesh[ti] = True
+                func = self.write_expr_and_mesh
+            # elif self.mode == 'param':
+            frame['flame_param_path'] = f"flame_param/{ti:05d}.npz"
+            if not saved_param[ti]:
+                worker_args.append([self.tgt_folder, frame['flame_param_path'], self.flame_params, ti_orig])
+                saved_param[ti] = True
+                func = self.write_flame_param
             #--- no multiprocessing
-            if len(worker_args) > 0:
-                func(*worker_args.pop())
+            # if len(worker_args) > 0:
+            #     func(*worker_args.pop())
             #--- multiprocessing
-            # if len(worker_args) == num_processes or i == len(self.db['frames'])-1:
-            #     pool = multiprocessing.Pool(processes=num_processes)
-            #     pool.starmap(func, worker_args)
-            #     pool.close()
-            #     pool.join()
-            #     worker_args = []
+            if len(worker_args) == num_processes or i == len(self.db['frames'])-1:
+                pool = multiprocessing.Pool(processes=num_processes)
+                pool.starmap(func, worker_args)
+                pool.close()
+                pool.join()
+                worker_args = []
 
         write_json(self.db, self.tgt_folder)
         write_json(self.db, self.tgt_folder, division='backup_flame')
