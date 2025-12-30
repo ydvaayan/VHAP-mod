@@ -128,13 +128,14 @@ def background_matting_v2(
 
         with torch.no_grad():
             pha, fgr, _, _, err, ref = model(src, bgr)
+        B = pha.shape[0]
+        for i in range(B):
+            alpha = (pha[i, 0] * 255).cpu().numpy()
+            alpha = Image.fromarray(alpha.astype('uint8'))
 
-        alpha = (pha[0, 0] * 255).cpu().numpy()
-        alpha = Image.fromarray(alpha.astype('uint8'))
-        alpha_path = item['image_path'][0].replace('images', 'alpha_maps')
-        if not Path(alpha_path).parent.exists():
-            Path(alpha_path).parent.mkdir(parents=True)
-        alpha.save(alpha_path)
+            alpha_path = item['image_path'][i].replace('images', 'alpha_maps')
+            Path(alpha_path).parent.mkdir(parents=True, exist_ok=True)
+            alpha.save(alpha_path)
         del src, bgr, pha, fgr # free up GPU memory
 
 def downsample_frames(image_dir: Path, n_downsample: int):
