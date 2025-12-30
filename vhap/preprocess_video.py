@@ -186,8 +186,11 @@ def main(
     for i, video_path in enumerate(videos):
         print(f'\n[{i}/{len(videos)}] Processing video file: {video_path}')
 
-        for n_downsample in [1] + downsample_scales:
+        for n_downsample in [1] + downsample_scales:   
             image_dir_ = image_dir if n_downsample == 1 else Path(str(image_dir) + f'_{n_downsample}')
+            if image_dir_.exists() and len(list(image_dir_.glob('*.jpg'))) > 0:
+                print(f'Skipping downsampled frames extraction for scale {n_downsample} as {image_dir_} already exists.')   
+                continue  # skip if already exists
             video2frames(video_path, image_dir_, keep_video_name=len(videos) > 1, target_fps=target_fps, n_downsample=n_downsample)
         
     # foreground matting
