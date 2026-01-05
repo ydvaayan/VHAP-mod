@@ -239,7 +239,8 @@ class TrackedFLAMEDatasetWriter:
         saved_mesh = [False] * len(self.db['timestep_indices'])
         cpu_count= multiprocessing.cpu_count()
         num_processes = cpu_count if cpu_count%2==0 else cpu_count-1
-        worker_args = []
+        worker_args_mesh = []
+        worker_args_param = []
         for i, frame in tqdm(enumerate(self.db['frames']), total=len(self.db['frames'])):
             if self.focal_length is not None:
                 self.replace_cam_params(frame)
@@ -254,25 +255,31 @@ class TrackedFLAMEDatasetWriter:
             frame['exp_path'] = f"flame/exp/{ti:05d}.txt"
             frame['mesh_path'] = f"meshes/{ti:05d}.obj"
             if not saved_mesh[ti]:
-                worker_args.append([self.tgt_folder, frame['exp_path'], self.flame_params['expr'][ti_orig], frame['mesh_path'], verts[ti_orig], self.flame_model.faces])
+                worker_args_mesh.append([self.tgt_folder, frame['exp_path'], self.flame_params['expr'][ti_orig], frame['mesh_path'], verts[ti_orig], self.flame_model.faces])
                 saved_mesh[ti] = True
-                func = self.write_expr_and_mesh
+                func_mesh = self.write_expr_and_mesh
+            if len(worker_args_mesh) == num_processes or i == len(self.db['frames'])-1:
+                pool = multiprocessing.Pool(processes=num_processes)
+                pool.starmap(func_mesh, worker_args_mesh)
+                pool.close()
+                pool.join()
+                worker_args_mesh= []
             # elif self.mode == 'param':
             frame['flame_param_path'] = f"flame_param/{ti:05d}.npz"
             if not saved_param[ti]:
-                worker_args.append([self.tgt_folder, frame['flame_param_path'], self.flame_params, ti_orig])
+                worker_args_param.append([self.tgt_folder, frame['flame_param_path'], self.flame_params, ti_orig])
                 saved_param[ti] = True
-                func = self.write_flame_param
+                func_param = self.write_flame_param
             #--- no multiprocessing
             # if len(worker_args) > 0:
             #     func(*worker_args.pop())
             #--- multiprocessing
-            if len(worker_args) == num_processes or i == len(self.db['frames'])-1:
+            if len(worker_args_param) == num_processes or i == len(self.db['frames'])-1:
                 pool = multiprocessing.Pool(processes=num_processes)
-                pool.starmap(func, worker_args)
+                pool.starmap(func_param, worker_args_param)
                 pool.close()
                 pool.join()
-                worker_args = []
+                worker_args_param= []
 
         write_json(self.db, self.tgt_folder)
         write_json(self.db, self.tgt_folder, division='backup_flame')
@@ -494,7 +501,7 @@ def infer_flame_params(flame_model: FlameHead, flame_params: Dict, indices:List)
     else:
         static_offset = None
     for k in flame_params:
-        if isinstance(flame_params[k], np.ndarray):
+        if isinstance(flame_params[k], np.ndarray) and flame_params[k].dtype.type is not np.str_:
             flame_params[k] = torch.tensor(flame_params[k])
     with torch.no_grad():
         ret = flame_model(
