@@ -158,6 +158,8 @@ def main(
         background_folder: Path=Path('../../BACKGROUND'),
         matting_batch_size: int=8,
         matting_num_workers: int=8,
+        no_matting: int=0,
+        no_extraction: int=0,
     ):
     if not input.exists():
         matched_paths = list(input.parent.glob(f"{input.name}"))
@@ -168,43 +170,45 @@ def main(
         else:
             raise FileNotFoundError(f"Found multiple matched folders: {matched_paths}")
             
-    # prepare path
-    if input.suffix in ['.mov', '.mp4']:
-        print(f'Processing video file: {input}')
-        videos = [input]
-        image_dir = input.parent / input.stem / 'images'
-    elif input.is_dir():
-        # if input is a directory, assume all contained videos are synchronized multiview of the same scene
-        print(f'Processing directory: {input}')
-        videos = list(input.glob('cam_*.mp4')) + list(input.glob('images/cam_*.mp4'))
-        image_dir = input / 'images'
-    else:
-        raise ValueError(f"Input should be a video file or a directory containing video files: {input}")
-    assert len(videos) > 0, f'No video files found in {input}'
+    # # prepare path
+    # if input.suffix in ['.mov', '.mp4']:
+    #     print(f'Processing video file: {input}')
+    #     videos = [input]
+    #     image_dir = input.parent / input.stem / 'images'
+    # elif input.is_dir():
+    # if input is a directory, assume all contained videos are synchronized multiview of the same scene
+    print(f'Processing directory: {input}')
+    videos = list(input.glob('cam_*.mp4')) + list(input.glob('images/cam_*.mp4'))
+    image_dir = input / 'images'
+    # else:
+    #     raise ValueError(f"Input should be a video file or a directory containing video files: {input}")
+    # assert len(videos) > 0, f'No video files found in {input}'
 
-    # extract frames
-    for i, video_path in enumerate(videos):
-        print(f'\n[{i}/{len(videos)}] Processing video file: {video_path}')
-        for n_downsample in [1] + downsample_scales:   
-            image_dir_ = image_dir if n_downsample == 1 else Path(str(image_dir) + f'_{n_downsample}')
-            if image_dir_.exists() :
-                vstem =video_path.parent / video_path.stem
-                if len(list(image_dir_.glob(f'{vstem.name}*.jpg'))) >0:
-                    print(f'Skipping downsampled frames extraction for scale {n_downsample} as {image_dir_} already exists.')   
-                    continue  # skip if already exists
-            video2frames(video_path, image_dir_, keep_video_name=len(videos) > 1, target_fps=target_fps, n_downsample=n_downsample)
-    
+    if no_extraction ==0:
+        # extract frames
+        for i, video_path in enumerate(videos):
+            print(f'\n[{i}/{len(videos)}] Processing video file: {video_path}')
+            for n_downsample in [1] + downsample_scales:   
+                image_dir_ = image_dir if n_downsample == 1 else Path(str(image_dir) + f'_{n_downsample}')
+                if image_dir_.exists() :
+                    vstem =video_path.parent / video_path.stem
+                    if len(list(image_dir_.glob(f'{vstem.name}*.jpg'))) >0:
+                        print(f'Skipping downsampled frames extraction for scale {n_downsample} as {image_dir_} already exists.')   
+                        continue  # skip if already exists
+                video2frames(video_path, image_dir_, keep_video_name=len(videos) > 1, target_fps=target_fps, n_downsample=n_downsample)
+        
     alpha_maps = [p.stem for p in list((image_dir.parent / 'alpha_maps').glob('*.jpg'))]
     image_files = [p.stem for p in list(image_dir.glob('*.jpg'))]
-    # foreground matting
-    if set(alpha_maps) == set(image_files):
-        print(f'Alpha maps already exist in {image_dir.parent / "alpha_maps"}. Skipping matting step.')
-    elif matting_method == 'robust_video_matting':
-        robust_video_matting(image_dir)
-    elif matting_method == 'background_matting_v2':
-        background_matting_v2(image_dir, background_folder=background_folder, matting_batch_size=matting_batch_size, matting_num_workers=matting_num_workers)
-    elif matting_method is not None:
-        raise ValueError(f'Unknown matting method: {matting_method}')
+    if no_matting == 0:
+        # foreground matting
+        if set(alpha_maps) == set(image_files):
+            print(f'Alpha maps already exist in {image_dir.parent / "alpha_maps"}. Skipping matting step.')
+        elif matting_method == 'robust_video_matting':
+            robust_video_matting(image_dir)
+        elif matting_method == 'background_matting_v2':
+            background_matting_v2(image_dir, background_folder=background_folder, matting_batch_size=matting_batch_size, matting_num_workers=matting_num_workers)
+        elif matting_method is not None:
+            raise ValueError(f'Unknown matting method: {matting_method}')
 
 
 if __name__ == '__main__':
